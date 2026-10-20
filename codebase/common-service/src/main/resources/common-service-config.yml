@@ -1,0 +1,4 @@
+encrypt:
+  rsa:
+    # 登入用一次性 RSA 金鑰對的長度
+    keysize: "${APP_ENCRYPT_RSA_KEYSIZE:2048}"

@@ -1,0 +1,48 @@
+name: starter-local
+services:
+  starter-postgres-local:
+    image: postgres:16.5
+    user: postgres
+    container_name: starter-postgres-local
+    networks:
+      - starter-local
+    ports:
+      - 5432:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 第一次啟動（資料庫還是空的）時執行：建立後端執行用帳號 starter_app
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    environment:
+      - POSTGRES_DB=starter
+      # 建表帳號（Flyway 使用，資料表擁有者）
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=starter_owner_local
+      # 後端執行用帳號 starter_app 的密碼（本機開發用的值，伺服器部署見 docker-compose-server.yml）
+      - APP_DB_ROLE_PASSWORD=starter_app_local
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "root", "-d", "starter" ]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+  starter-redis-local:
+    image: redis:7.2
+    container_name: starter-redis-local
+    networks:
+      - starter-local
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+volumes:
+  pgdata:
+    driver: local
+  redis_data:
+    driver: local
+networks:
+  starter-local:
+    driver: bridge

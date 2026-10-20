@@ -1,0 +1,138 @@
+# 伺服器部署（SIT 與正式環境共用）：前端＋後端＋PostgreSQL＋Redis
+# 兩個環境用同一份設定，差別只在同目錄 .env 的值；操作步驟見 doc/SETUP_DOCKER_SERVER.md
+#
+# 安全規則：
+#   1. PostgreSQL、Redis 只用 expose，不發布 port 到主機，只有同一個 docker 網路內的服務連得到
+#   2. 發布到主機的 port 一律綁 127.0.0.1：Docker 發布的 port 會繞過 ufw 防火牆，
+#      綁 127.0.0.1 才能確保只有同一台主機上的反向代理連得到
+#   3. 所有密碼、金鑰都從同目錄的 .env 帶入（範本：.env.server.example），不寫在這個檔案裡；
+#      寫成 ${變數:?說明} 的是必填，沒有設定時 docker compose 會直接拒絕啟動
+#   4. 每個服務都設定 restart: unless-stopped：主機重開機或程式當掉時自動重新啟動，
+#      只有手動 docker compose stop 停掉的服務不會自動啟動
+name: starter
+services:
+  starter-postgres:
+    image: postgres:16.5
+    container_name: starter-postgres
+    restart: unless-stopped
+    networks:
+      - starter
+    expose:
+      - "5432"
+    volumes:
+      # 資料庫的資料存在 docker volume（starter_pgdata），刪除容器不會刪除資料
+      - pgdata:/var/lib/postgresql/data
+      # 第一次啟動（資料庫還是空的）時執行：建立後端執行用帳號 starter_app
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    environment:
+      - POSTGRES_DB=${APP_DB_NAME:-starter}
+      # 建表帳號：Flyway 建立資料表用，是資料表擁有者
+      - POSTGRES_USER=${APP_FLYWAY_USERNAME:?請在 .env 設定 APP_FLYWAY_USERNAME}
+      - POSTGRES_PASSWORD=${APP_FLYWAY_PASSWORD:?請在 .env 設定 APP_FLYWAY_PASSWORD}
+      # 後端執行用帳號 starter_app 的密碼（初始化腳本 postgres-init/ 使用）
+      - APP_DB_ROLE_PASSWORD=${APP_DB_PASSWORD:?請在 .env 設定 APP_DB_PASSWORD}
+    healthcheck:
+      # $$ 代表容器內的環境變數（不是 .env 的值）
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  starter-redis:
+    image: redis:7.2
+    container_name: starter-redis
+    restart: unless-stopped
+    networks:
+      - starter
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    environment:
+      - APP_REDIS_PASSWORD=${APP_REDIS_PASSWORD:?請在 .env 設定 APP_REDIS_PASSWORD}
+      # redis-cli（健康檢查用）從這個環境變數讀密碼，避免密碼出現在指令列上
+      - REDISCLI_AUTH=${APP_REDIS_PASSWORD}
+    # 啟動 Redis 並要求密碼
+    command: [ "sh", "-c", "exec redis-server --requirepass \"$$APP_REDIS_PASSWORD\"" ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  starter-api-server:
+    # 映像檔由 docker/api-server.dockerfile 建置（見 doc/SETUP_DOCKER_SERVER.md）
+    image: starter-api-server
+    container_name: starter-api-server
+    restart: unless-stopped
+    networks:
+      - starter
+    depends_on:
+      starter-postgres:
+        condition: service_healthy
+      starter-redis:
+        condition: service_healthy
+    # 後端在主機上的 port：只供同一台主機上測試、除錯使用（前端透過 docker 內部網路連後端，不經過這裡）
+    ports:
+      - "127.0.0.1:8085:8083"
+    volumes:
+      # 日誌寫到主機的 /opt/starter/logs/api（需要先執行 docker/create-working-dir.sh 建立）
+      - /opt/starter/logs/api:/opt/starter/logs
+    environment:
+      # 容器內部的 port，必須跟上面 ports 後面（:8083）的值一樣
+      - API_SERVER_PORT=8083
+      - APP_DB_IP=starter-postgres
+      - APP_DB_PORT=5432
+      - APP_DB_NAME=${APP_DB_NAME:-starter}
+      # 後端執行時以 starter_app 連線（不是資料表擁有者，Row-Level Security 才會生效）
+      - APP_DB_USERNAME=starter_app
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD:?請在 .env 設定 APP_DB_PASSWORD}
+      # Flyway 建表、改表時使用的帳號（資料表擁有者）
+      - APP_FLYWAY_USERNAME=${APP_FLYWAY_USERNAME:?請在 .env 設定 APP_FLYWAY_USERNAME}
+      - APP_FLYWAY_PASSWORD=${APP_FLYWAY_PASSWORD:?請在 .env 設定 APP_FLYWAY_PASSWORD}
+      - APP_REDIS_HOST=starter-redis
+      - APP_REDIS_PORT=6379
+      - APP_REDIS_PASSWORD=${APP_REDIS_PASSWORD:?請在 .env 設定 APP_REDIS_PASSWORD}
+      - APP_JWT_KEY=${APP_JWT_KEY:?請在 .env 設定 APP_JWT_KEY}
+      - APP_JASYPT_PASSWORD=${APP_JASYPT_PASSWORD:?請在 .env 設定 APP_JASYPT_PASSWORD}
+      - API_SERVER_LOG_FILE_NAME=/opt/starter/logs/api-server.log
+      - API_SERVER_LOG_FILE_NAME_PATTERN=/opt/starter/logs/api-server.%d{yyyy/MM}.%i.log.gz
+      # Java 可使用的記憶體上限，依主機記憶體調整（預設 1GB）
+      - JAVA_OPTS=${APP_JAVA_OPTS:--Xms64M -Xmx1024M}
+      # Spring profile：測試環境（SIT）可以設為 local（建立示範租戶與三組固定密碼帳號）；
+      # 正式環境必須留空（不填就是不啟用）
+      - SPRING_PROFILES_ACTIVE=${APP_SPRING_PROFILES:-}
+
+  starter-frontend:
+    # 映像檔由 multitenant-starter-frontend 專案根目錄的 Dockerfile 建置（見 doc/SETUP_DOCKER_SERVER.md）
+    image: starter-frontend
+    container_name: starter-frontend
+    restart: unless-stopped
+    networks:
+      - starter
+    depends_on:
+      - starter-api-server
+    ports:
+      - "127.0.0.1:4200:4200"
+    environment:
+      # 前端伺服器透過 docker 內部網路呼叫後端（容器名稱＋容器內部 port）
+      - API_PREFIX=http://starter-api-server:8083
+      # 加密登入 cookie 的金鑰（產生方式見 .env.server.example）
+      - SECRET_KEY=${APP_FRONTEND_SECRET_KEY:?請在 .env 設定 APP_FRONTEND_SECRET_KEY}
+      - SESSION_KEY=STARTER_SESSION
+      # 只允許以 HTTPS 傳送登入 cookie；設定好 HTTPS 後必須維持 true
+      - COOKIE_SECURE=${APP_COOKIE_SECURE:-true}
+      # 登入頁的測試帳號快速登入按鈕（只給 SIT，見 .env.server.example）；不填就不會出現按鈕
+      - QUICK_LOGIN_ADMIN_PASSWORD=${APP_QUICK_LOGIN_ADMIN_PASSWORD:-}
+      - QUICK_LOGIN_TENANT_A_PASSWORD=${APP_QUICK_LOGIN_TENANT_A_PASSWORD:-}
+      - QUICK_LOGIN_TENANT_B_PASSWORD=${APP_QUICK_LOGIN_TENANT_B_PASSWORD:-}
+
+volumes:
+  pgdata:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  starter:
+    driver: bridge

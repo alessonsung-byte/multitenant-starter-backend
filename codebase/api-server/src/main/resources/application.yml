@@ -1,0 +1,103 @@
+server:
+  port: "${API_SERVER_PORT:8080}"
+  servlet:
+    context-path: "${API_SERVER_SERVLET_CONTEXT_PATH:/}"
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info"
+spring:
+  config:
+    import:
+      # 匯入 common-service 設定。沒找到不會報錯
+      - optional:classpath:common-service-config.yml
+      # 匯入 user-service 設定。沒找到不會報錯
+      - optional:classpath:user-service-config.yml
+  threads:
+    virtual:
+      enabled: "${APP_VIRTUAL_ENABLED:true}"
+  datasource:
+    url: "jdbc:postgresql://${APP_DB_IP:127.0.0.1}:${APP_DB_PORT:5432}/${APP_DB_NAME:starter}"
+    # 後端執行時使用的資料庫帳號 starter_app：不是資料表擁有者，Row-Level Security 才會生效
+    # 密碼一律由環境變數提供（本機開發的值見 scripts/dev-env.sh）；值也可以是 ENC(...) 加密後的字串
+    username: "${APP_DB_USERNAME:starter_app}"
+    password: "${APP_DB_PASSWORD}"
+    hikari:
+      # Transaction 管理應該都由 service 層控制。除非有特別的理由，不建議設定此值為 true
+      auto-commit: "false"
+  jpa:
+    hibernate:
+      ddl-auto: none
+    # 是否在日誌印出 SQL。正式環境請維持 false，避免日誌量暴增並把業務資料寫進日誌
+    show-sql: "${APP_SHOW_SQL:false}"
+    properties:
+      hibernate:
+        format_sql: "${APP_SHOW_SQL:false}"
+    # 關閉：資料庫存取一律在 service 層的 transaction 內完成，不在 controller 回應時才延遲載入
+    open-in-view: false
+  flyway:
+    enabled: true
+    # Flyway 建表、改表使用的帳號（資料表擁有者），與上面後端執行用的帳號分開
+    # 一律由環境變數提供（本機開發的值見 scripts/dev-env.sh）
+    user: "${APP_FLYWAY_USERNAME}"
+    password: "${APP_FLYWAY_PASSWORD}"
+    locations:
+      # 模組 user-service 專用
+      - classpath:db/migration/user
+      # 模組 business-service 專用（所有模組共用同一組版本號：V1～V3 user、V4 起 business）
+      - classpath:db/migration/business
+  data:
+    redis:
+      host: "${APP_REDIS_HOST:127.0.0.1}"
+      port: "${APP_REDIS_PORT:6379}"
+      password: "${APP_REDIS_PASSWORD:}"
+      database: "${APP_REDIS_DATABASE:0}"
+      timeout: "${APP_REDIS_TIMEOUT:60000}"
+##################################################
+# Default Locale
+##################################################
+locale:
+  default:
+    language: "${APP_LOCALE_LANGUAGE:zh}"
+    country: "${APP_LOCALE_COUNTRY:TW}"
+##################################################
+# Jasypt settings
+# 加解密主密碼一律由環境變數 APP_JASYPT_PASSWORD 提供，不寫在檔案裡；
+# 沒有設定時服務會啟動失敗（刻意設計，避免用到公開的預設密碼）。
+# 任何設定值（包含上面以環境變數提供的密碼）都可以寫成 ENC(...)，啟動時以這個主密碼解密，
+# 加密方式見 doc/HOW_TO_ENCRYPT_STRING_IN_PROPERTIES.md。
+##################################################
+jasypt:
+  encryptor:
+    password: "${APP_JASYPT_PASSWORD}"
+    algorithm: "PBEWITHHMACSHA512ANDAES_256"
+    salt-generator-classname: "org.jasypt.salt.RandomSaltGenerator"
+    iv-generator-classname: "org.jasypt.iv.RandomIvGenerator"
+    provider-name: "SunJCE"
+    string-output-type: "base64"
+    pool-size: 1
+    key-obtention-iterations: 1000
+##################################################
+# Logging settings
+##################################################
+logging:
+  level:
+    root: "info"
+    org.springframework.security: "${API_SERVER_LOG_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:info}"
+  file:
+    name: "${API_SERVER_LOG_FILE_NAME:logs/api-server.log}"
+  logback:
+    rollingpolicy:
+      max-file-size: "5MB"
+      max-history: "30"
+      total-size-cap: "2GB"
+      file-name-pattern: "${API_SERVER_LOG_FILE_NAME_PATTERN:logs/api-server.%d{yyyy/MM}.%i.log.gz}"
+      clean-history-on-start: "false"
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    level: "%5p"
+  charset:
+    console: "UTF-8"
+    file: "UTF-8"

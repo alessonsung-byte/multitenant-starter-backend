@@ -1,0 +1,26 @@
+### Maven ###
+target/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+### VS Code ###
+.vscode/
+
+### macOS ###
+.DS_Store
+
+### 本機環境變數檔（含密鑰，不可提交） ###
+.env
+*.env
+docker/.env
+
+### 應用程式日誌 ###
+logs/
+
+### 建置後複製到 docker 資料夾的 jar ###
+docker/*.jar

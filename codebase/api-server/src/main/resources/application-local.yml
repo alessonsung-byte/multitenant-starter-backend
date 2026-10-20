@@ -1,0 +1,15 @@
+# ======================================================================
+# 本機測試專用設定（Spring profile「local」）
+# 啟用方式：環境變數 SPRING_PROFILES_ACTIVE=local（scripts/dev-env.sh 已設定，見 README「本機示範資料」）；
+# 伺服器部署用 .env 的 APP_SPRING_PROFILES=local（只限測試環境）
+#
+# 多執行 db/migration/local 的 Flyway migration：建立兩個示範租戶、三組固定密碼的帳號與幾筆示範資料。
+# 密碼寫在 git 裡，本機與測試環境可以啟用，絕對不可以在正式環境啟用這個 profile。
+# ======================================================================
+spring:
+  flyway:
+    locations:
+      - classpath:db/migration/user
+      - classpath:db/migration/business
+      # 本機測試資料
+      - classpath:db/migration/local

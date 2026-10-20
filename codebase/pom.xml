@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.13</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <groupId>com.example.starter</groupId>
+    <artifactId>multitenant-starter</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>multitenant-starter-backend</name>
+    <description>Multi-tenant starter backend（多模組 Maven 專案）</description>
+
+    <modules>
+        <module>common-service</module>
+        <module>logging-service</module>
+        <module>user-service</module>
+        <module>business-service</module>
+        <module>api-server</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+
+        <!-- 各模組共用的第三方函式庫版本 -->
+        <commons-lang3.version>3.17.0</commons-lang3.version>
+        <jasypt.version>3.0.5</jasypt.version>
+        <mockito.version>5.14.2</mockito.version>
+        <jjwt.version>0.11.5</jjwt.version>
+
+        <!--
+            弱點修補：Spring Boot 3.4 已出到最後一版 3.4.13，
+            以下函式庫在同一個版本線內改用較新的修補版，修正弱點掃描找到的問題（不改變 Spring Boot 3.4 的選擇）
+        -->
+        <netty.version>4.1.138.Final</netty.version>
+        <tomcat.version>10.1.60</tomcat.version>
+        <spring-framework.version>6.2.19</spring-framework.version>
+        <log4j2.version>2.26.1</log4j2.version>
+        <jackson-bom.version>2.18.11</jackson-bom.version>
+        <postgresql.version>42.7.13</postgresql.version>
+        <!-- 插件版本 -->
+        <maven-checkstyle-plugin.version>3.3.1</maven-checkstyle-plugin.version>
+        <checkstyle.version>10.21.2</checkstyle.version>
+        <dependency-check-maven.version>12.0.2</dependency-check-maven.version>
+        <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
+
+        <!-- 執行 OWASP dependency-check 時使用的 NVD API Key（可加速弱點資料庫更新），由環境變數 NVD_API_KEY 提供，不寫在檔案裡 -->
+        <app.nvd.apiKey>${env.NVD_API_KEY}</app.nvd.apiKey>
+        <app.nvd.delay>20000</app.nvd.delay>
+    </properties>
+
+    <!--
+        以下這些是「所有模組都會用到」的共用相依套件，直接放在 parent 的 <dependencies>（而非 <dependencyManagement>），
+        所有子模組都會自動繼承
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons-lang3.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ulisesbocchio</groupId>
+            <artifactId>jasypt-spring-boot-starter</artifactId>
+            <version>${jasypt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- 測試 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            Java 21 開始，JDK 限制了函式庫將 Java agent 附掛到自己 JVM 的能力，
+            導致 mockito 的 inline-mock-maker 若沒有明確設定，執行時會出現警告。
+            這裡明確宣告版本，並透過下方 maven-dependency-plugin + maven-surefire-plugin 的 argLine 設定，
+            在測試執行時明確以 -javaagent 附掛 mockito-core
+        -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!--
+                    只有 api-server 是可以啟動的程式（api-server/pom.xml 把 skip 改回 false）。
+                    其他模組（含這個 parent）設為略過，README 的 `./mvnw -pl api-server -am spring-boot:run`
+                    才不會在沒有啟動程式的模組上失敗（Unable to find a suitable main class）
+                -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <skip>true</skip>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+        <plugins>
+            <!--
+                編譯時保留方法參數名稱（-parameters），讓 Spring、Jackson 等框架可以透過反射取得參數的真實名稱
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+
+            <!-- 解析 mockito-core 的 jar 路徑，供下方 surefire 的 argLine 使用（JDK 21 下 Mockito 需要以 javaagent 方式載入） -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>${maven-dependency-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>get-mockito-javaagent</id>
+                        <phase>process-test-classes</phase>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- 單元測試（類別名稱 *Test）：./mvnw test 或 verify 時執行 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+            </plugin>
+            <!--
+                整合測試（類別名稱 *IT）：./mvnw verify 時執行。
+                以 Testcontainers 自動啟動真的 PostgreSQL 與 Redis，執行的電腦必須有 Docker
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+                在編譯前先做靜態程式碼風格檢查，設定檔統一使用 codebase/checkstyle.xml
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${maven-checkstyle-plugin.version}</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>com.puppycrawl.tools</groupId>
+                        <artifactId>checkstyle</artifactId>
+                        <version>${checkstyle.version}</version>
+                    </dependency>
+                </dependencies>
+                <executions>
+                    <execution>
+                        <id>validate</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <failsOnError>true</failsOnError>
+                    <linkXRef>false</linkXRef>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <logViolationsToConsole>true</logViolationsToConsole>
+                    <!-- checkstyle.xml 的規則都是 severity="warning"，只顯示在畫面上提醒，不會讓建置失敗 -->
+                    <violationSeverity>error</violationSeverity>
+                </configuration>
+            </plugin>
+
+            <!--
+                第三方函式庫弱點掃描。刻意不綁定 <executions>，一般建置流程不會自動執行，
+                需要時手動執行 `./mvnw org.owasp:dependency-check-maven:check`（見 doc/HOW_TO_CHECK_DEPENDENCIES.md）
+            -->
+            <plugin>
+                <groupId>org.owasp</groupId>
+                <artifactId>dependency-check-maven</artifactId>
+                <version>${dependency-check-maven.version}</version>
+                <configuration>
+                    <autoUpdate>true</autoUpdate>
+                    <formats>
+                        <format>HTML</format>
+                        <format>CSV</format>
+                    </formats>
+                    <nvdApiKey>${app.nvd.apiKey}</nvdApiKey>
+                    <nvdApiDelay>${app.nvd.delay}</nvdApiDelay>
+                    <failBuildOnCVSS>8</failBuildOnCVSS>
+                    <suppressionFiles>
+                        <suppressionFile>${maven.multiModuleProjectDirectory}/dependency-check-suppression.xml</suppressionFile>
+                    </suppressionFiles>
+                    <failOnError>false</failOnError>
+                </configuration>
+            </plugin>
+
+            <!-- Jasypt 加解密指令（見 doc/HOW_TO_ENCRYPT_STRING_IN_PROPERTIES.md） -->
+            <plugin>
+                <groupId>com.github.ulisesbocchio</groupId>
+                <artifactId>jasypt-maven-plugin</artifactId>
+                <version>${jasypt.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.example.starter</groupId>
+        <artifactId>multitenant-starter</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>business-service</artifactId>
+    <packaging>jar</packaging>
+    <name>business-service</name>
+    <description>範例業務模組：客戶、訂單（只能作廢、不能修改）、月報表、操作紀錄。新業務功能照這個模組的寫法加入</description>
+
+    <dependencies>
+        <!-- 多租戶（TenantContext、@TenantId 的租戶解析、交易管理器）、JPA、Flyway 都由 user-service 提供 -->
+        <dependency>
+            <groupId>com.example.starter</groupId>
+            <artifactId>user-service</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>
